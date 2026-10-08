@@ -1667,10 +1667,15 @@ if PAGE == PAGES[9]:
                 "并可直接用筛选结果去选股。</div>", unsafe_allow_html=True)
 
     c1, c2, c3, c4 = st.columns(4)
-    ic_n = c1.selectbox("研究样本（按成交额取前 N 只）", [300, 600, 1200, 5000], index=0,
-                        format_func=lambda n: {300: "300 只（快）", 600: "600 只",
-                                               1200: "1200 只", 5000: "全部沪深主板（慢，1~3 分钟）"}.get(n, f"{n} 只"),
+    _sample_opts = [200, 300, 600] if IS_CLOUD else [300, 600, 1200, 5000]
+    ic_n = c1.selectbox("研究样本（按成交额取前 N 只）", _sample_opts, index=0,
+                        format_func=lambda n: {200: "200 只（最快）", 300: "300 只（快）",
+                                               600: "600 只（云端较慢）",
+                                               1200: "1200 只（本机可用）",
+                                               5000: "全部沪深主板（仅本机，3~5 分钟）"}.get(n, f"{n} 只"),
                         key="fs_n")
+    if IS_CLOUD:
+        c1.caption("☁️ 云端为免费服务器（1核1G），样本越大越慢；建议先用 200~300 只。")
     ic_h = c2.selectbox("持有期（交易日）", [5, 10, 20, 60], index=2, key="fs_h")
     ic_q = c3.selectbox("分层数（按因子值分几组）", [3, 5, 10], index=1, key="fs_q",
                         help="把股票按因子值从小到大分成 N 组，再看每组的未来收益。\n"
@@ -1679,17 +1684,41 @@ if PAGE == PAGES[9]:
     ic_corr = c4.checkbox("计算因子相关性（较慢，可关闭）", False, key="fs_corr")
     if st.button("🔍 开始因子筛选（20 个因子）", type="primary", key="run_screen"):
         try:
-            prog = st.progress(0.0, text="正在计算因子与 IC（约 30~60 秒）…")
+            # 让"研究样本 N 只"真正生效：若当前行情池比所选样本小，就按样本数重新准备数据
+            bundle_use = bundle
+            _days_use = int(locals().get("rt_days", 250) or 250)
+            _have = len(getattr(bundle, "symbols", []) or [])
+            if int(ic_n) > _have and str(source).startswith("🟢"):
+                prog0 = st.progress(0.0, text=f"① 正在准备 {int(ic_n)} 只研究样本的行情数据（云端首次较慢，请等待）…")
+                _p0 = lambda p: prog0.progress(min(float(p), 0.99))   # noqa: E731
+                _info_ic = resolve_pool_cached("active", int(ic_n))
+                _codes_ic = list(getattr(_info_ic, "symbols", []) or [])
+                if _codes_ic:
+                    _b_ic, _st_ic, _q_ic = fetch_realtime_bundle(
+                        _codes_ic, days=_days_use, workers=12, progress_cb=_p0)
+                    if _b_ic is not None and len(_b_ic.symbols) > 0:
+                        bundle_use = _b_ic
+                        try:
+                            if getattr(_info_ic, "industries", None):
+                                bundle_use.meta["industry"] = [
+                                    _info_ic.industries.get(s, "未分类") for s in bundle_use.meta.index]
+                            if getattr(_info_ic, "names", None):
+                                bundle_use.meta["name"] = [
+                                    _info_ic.names.get(s, s) for s in bundle_use.meta.index]
+                        except Exception:
+                            pass
+                prog0.progress(1.0, text=f"① 研究样本已就绪：{len(bundle_use.symbols)} 只")
+            prog = st.progress(0.0, text="② 正在计算因子与 IC（约 30~60 秒）…")
             _p = lambda p: prog.progress(min(float(p), 0.99))   # noqa: E731
             with st.spinner("跑因子筛选…"):
                 if int(ic_n) > 800:
                     # 大样本：逐因子计算（内存友好），最多跑全主板
-                    fs = screen_factors_large(bundle, horizon=int(ic_h), max_symbols=int(ic_n),
+                    fs = screen_factors_large(bundle_use, horizon=int(ic_h), max_symbols=int(ic_n),
                                               q=int(ic_q), progress_cb=_p, corr_top=10)
                 else:
-                    fs = screen_factors(bundle, horizon=int(ic_h), max_symbols=int(ic_n),
+                    fs = screen_factors(bundle_use, horizon=int(ic_h), max_symbols=int(ic_n),
                                         q=int(ic_q), corr=bool(ic_corr), progress_cb=_p)
-            prog.progress(1.0, text="完成")
+            prog.progress(1.0, text="② 完成")
             st.session_state.factor_screen = fs
         except Exception as exc:
             st.error(f"因子筛选失败：{exc}")
