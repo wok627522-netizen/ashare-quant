@@ -1,0 +1,6 @@
+# A 股量化研究平台 · 核心依赖
+pandas>=2.0
+numpy>=1.24
+plotly>=5.18
+streamlit>=1.50
+openpyxl>=3.1
