@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+data_cache/
+exports/
+logs/
+state/
+config/auth.json
+.streamlit/secrets.toml
+tools/
+*.bak*
