@@ -134,11 +134,20 @@ class DataBundle:
 
     # ---------------- 矩阵视图（策略层最常用） ----------------
     def _field_matrix(self, col: str) -> pd.DataFrame:
+        # 缓存：因子筛选/选股会反复取同一矩阵，缓存后可提速数倍
+        cache = getattr(self, "_matrix_cache", None)
+        if cache is None:
+            cache = {}
+            object.__setattr__(self, "_matrix_cache", cache)
+        if col in cache:
+            return cache[col]
         data = {}
         for sym in self.symbols:
             df = self.prices[sym]
             data[sym] = df[col] if col in df.columns else pd.Series(np.nan, index=df.index)
-        return pd.DataFrame(data).reindex(self.calendar)
+        out = pd.DataFrame(data).reindex(self.calendar)
+        cache[col] = out
+        return out
 
     def close_matrix(self) -> pd.DataFrame:
         return self._field_matrix("close")
